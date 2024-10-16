@@ -15,3 +15,29 @@ pip install tinygrad numpy
 ```
 METAL=1 BEAM=2 DEBUG=2 python3.12 main_train.py
 ```
+## Future Work
+
+Roadmap to upgrade this to TD-MPC-2:
+
+```
+TD-MPC --> TD-MPC2
+|
++-- Architecture Changes
+|   |-- Add SimNorm
+|   |-- Incorporate LayerNorm
+|
++-- Remove Target Networks
+|   |-- Eliminate target critic
+|   |-- Adjust learning rates
+|
++-- Multi-domain Support
+|   |-- Modify encoder
+|   |-- Unify actor/critic
+|
++-- Scaling Improvements
+|   |-- Support larger models
+|   |-- Efficient training
+|
++-- Hyperparameter Unification
+    |-- Single config set
+```
