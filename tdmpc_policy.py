@@ -28,17 +28,17 @@ def topk(input_:Tensor, k, dim=-1, largest=True, sorted=False):
     return Tensor(val), ind
 
 def update_ema_parameters(ema_net, net, alpha: float):
+    Tensor.no_grad = True
+    net_state_dict = nn.state.get_state_dict(net)
+    ema_net_state_dict = nn.state.get_state_dict(ema_net)
     """Update EMA parameters in place with ema_param <- alpha * ema_param + (1 - alpha) * param."""
-    for ema_param, param in zip(nn.state.get_parameters(ema_net), nn.state.get_parameters(net), strict=True):
-        if isinstance(param, dict):
-            raise RuntimeError("Dict parameter not supported")
-        if isinstance(param, nn.BatchNorm) or not param.requires_grad:
-            # Copy BatchNorm parameters, and non-trainable parameters directly.
-            ema_param = ema_param.replace(param.cast(dtype=ema_param.dtype))
-        Tensor.no_grad = True
-        ema_param *= alpha
-        ema_param += Tensor(param.cast(dtype=ema_param.dtype).numpy() * (1 - alpha), requires_grad=False)
-        Tensor.no_grad = False
+    for p_n in net_state_dict:
+        if p_n in ema_net_state_dict:
+            print(f'Updating EMA param with key: {p_n}')
+            p_v = net_state_dict[p_n].detach()
+            ema_net_state_dict[p_n] *= alpha
+            ema_net_state_dict[p_n] += p_v.cast(dtype=ema_net_state_dict[p_n].dtype) * (1.0 - alpha)
+    Tensor.no_grad = False
 
 class TDMPCPolicy():
     """Implementation of TD-MPC learning + inference.

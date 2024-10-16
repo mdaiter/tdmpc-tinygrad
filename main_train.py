@@ -48,10 +48,10 @@ def train_step(batch) -> Tensor:
     Tensor.training = True
     output_dict = policy(batch)
     loss = output_dict["loss"]
-    opt.zero_grad()
-    policy.update()
     loss.backward()
     opt.step()
+    opt.zero_grad()
+    policy.update()
     return loss
 
 print(f'Starting training loop')
