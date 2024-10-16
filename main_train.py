@@ -42,12 +42,14 @@ policy = TDMPCPolicy(cfg, dataset_stats=dataset.stats)
 
 opt = nn.optim.Adam(nn.state.get_parameters(policy), lr=3e-4)
 
+@TinyJit
 @Tensor.train()
 def train_step(batch) -> Tensor:
     Tensor.training = True
     output_dict = policy(batch)
     loss = output_dict["loss"]
     opt.zero_grad()
+    policy.update()
     loss.backward()
     opt.step()
     return loss
@@ -57,7 +59,7 @@ print(f'Starting training loop')
 dataloader = DataLoader(
     dataset,
     num_workers=0,
-    batch_size=32, #256,
+    batch_size=256,
     shuffle=True,
     pin_memory=False,
     drop_last=True,

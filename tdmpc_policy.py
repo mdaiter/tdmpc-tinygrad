@@ -1,5 +1,6 @@
 import tinygrad
 from tinygrad import nn, Tensor
+from tinygrad.nn import BatchNorm
 from collections import deque
 from copy import deepcopy
 from functools import partial
@@ -25,6 +26,19 @@ def topk(input_:Tensor, k, dim=-1, largest=True, sorted=False):
     if largest: input_ *= -1
     val = np.take_along_axis(input_, ind_part, axis=dim)
     return Tensor(val), ind
+
+def update_ema_parameters(ema_net, net, alpha: float):
+    """Update EMA parameters in place with ema_param <- alpha * ema_param + (1 - alpha) * param."""
+    for ema_param, param in zip(nn.state.get_parameters(ema_net), nn.state.get_parameters(net), strict=True):
+        if isinstance(param, dict):
+            raise RuntimeError("Dict parameter not supported")
+        if isinstance(param, nn.BatchNorm) or not param.requires_grad:
+            # Copy BatchNorm parameters, and non-trainable parameters directly.
+            ema_param = ema_param.replace(param.cast(dtype=ema_param.dtype))
+        Tensor.no_grad = True
+        ema_param *= alpha
+        ema_param += Tensor(param.cast(dtype=ema_param.dtype).numpy() * (1 - alpha), requires_grad=False)
+        Tensor.no_grad = False
 
 class TDMPCPolicy():
     """Implementation of TD-MPC learning + inference.
@@ -305,7 +319,7 @@ class TDMPCPolicy():
         """
         batch = self.normalize_inputs(batch)
         if self._use_image:
-            batch = dict(batch)  # shallow copy so that adding a key doesn't modify the original
+            batch = deepcopy(dict(batch))  # shallow copy so that adding a key doesn't modify the original
             batch["observation.image"] = batch[self.input_image_key]
         batch = self.normalize_targets(batch)
 
