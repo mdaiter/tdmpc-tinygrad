@@ -64,7 +64,6 @@ class TDMPCPolicy():
         self.model = TDMPCTOLD(config)
         self.model_target = deepcopy(self.model)
         for param in nn.state.get_parameters(self.model_target):
-            print(f'param to set required_grad=False: {param}')
             param.requires_grad = False
 
         if config.input_normalization_modes is not None:
@@ -320,10 +319,9 @@ class TDMPCPolicy():
         action = batch["action"]  # (t, b, action_dim)
         reward = batch["next.reward"]  # (t, b)
         observations = {k: v for k, v in batch.items() if k.startswith("observation.")}
-        print(f'observations: {observations["observation.image"]}')
 
         # Apply random image augmentations.
-        if self._use_image and self.config.max_random_shift_ratio > 0:
+        if self._use_image and self.config.max_random_shift_ratio > 0.0:
             observations["observation.image"] = flatten_forward_unflatten(
                 [partial(random_shifts_aug, max_random_shift_ratio=self.config.max_random_shift_ratio)],
                 observations["observation.image"],
@@ -343,7 +341,6 @@ class TDMPCPolicy():
         # Note this has shape `horizon+1` because there are `horizon` actions and a current `z`. Each action
         # gives us a next `z`.
         batch_size = batch["index"].shape[0]
-        print(f'current_observation: {current_observation}')
         z_pred = self.model.encode(current_observation)
         z_pred_arr = [z_pred]
         reward_pred_arr = []
@@ -353,8 +350,6 @@ class TDMPCPolicy():
             reward_pred_arr.append(reward_pred_new)
         z_preds = z_pred_arr[0].stack(*z_pred_arr[1:], dim=0)
         reward_preds = Tensor.stack(*reward_pred_arr, dim=0)
-        print(f'z_preds: {z_preds}')
-        print(f'rewards_preds: {reward_preds}')
 
         # Compute Q and V value predictions based on the latent rollout.
         q_preds_ensemble = self.model.Qs(z_preds[:-1], action)  # (ensemble, horizon, batch)
@@ -383,10 +378,6 @@ class TDMPCPolicy():
         temporal_loss_coeffs = Tensor(self.config.temporal_decay_coeff).pow(Tensor.arange(horizon)).unsqueeze(-1)
         # Compute consistency loss as MSE loss between latents predicted from the rollout and latents
         # predicted from the (target model's) observation encoder.
-        print(f'temporal_loss_coeffs: {temporal_loss_coeffs}')
-        print(f'batch["action_is_pad"]: {batch["action_is_pad"]}')
-        print(f'batch["observation.state_is_pad"][0]: {batch["observation.state_is_pad"][0]}')
-        print(f'batch["observation.state_is_pad"][1:]: {batch["observation.state_is_pad"][1:]}')
         consistency_loss = (
             (
                 temporal_loss_coeffs
@@ -402,7 +393,6 @@ class TDMPCPolicy():
         )
         # Compute the reward loss as MSE loss between rewards predicted from the rollout and the dataset
         # rewards.
-        print(f'batch["next.reward_is_pad"]: {batch["next.reward_is_pad"]}')
         reward_loss = (
             (
                 temporal_loss_coeffs
@@ -424,7 +414,7 @@ class TDMPCPolicy():
                 * batch["observation.state_is_pad"][0].logical_not().int()
                 * batch["action_is_pad"].logical_not().int()
                 # q_targets depends on the reward and the next observations.
-                * batch["next.reward_is_pad"]
+                * batch["next.reward_is_pad"].logical_not().int()
                 * batch["observation.state_is_pad"][1:].logical_not().int()
             )
             .sum(0)
@@ -435,9 +425,9 @@ class TDMPCPolicy():
         # Expectile loss penalizes:
         #   - `v_preds <  v_targets` with weighting `expectile_weight`
         #   - `v_preds >= v_targets` with weighting `1 - expectile_weight`
-        raw_v_value_loss = (diff > 0).where(
-            self.config.expectile_weight, (1 - self.config.expectile_weight)
-        ) * (diff.pow(2))
+        raw_v_value_loss = (diff.detach() > 0.0).where(
+            self.config.expectile_weight, (1.0 - self.config.expectile_weight)
+        ).float() * diff.pow(2).float()
         v_value_loss = (
             (
                 temporal_loss_coeffs
@@ -503,8 +493,6 @@ class TDMPCPolicy():
                 "sum_loss": loss.item() * self.config.horizon,
             }
         )
-
-        print(f'info: {info}')
 
         # Undo (b, t) -> (t, b).
         for key in batch:

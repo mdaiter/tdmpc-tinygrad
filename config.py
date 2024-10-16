@@ -130,7 +130,7 @@ class TDMPCConfig:
     gaussian_mean_momentum: float = 0.1
 
     # Training and loss computation.
-    max_random_shift_ratio: float = 0.0476
+    max_random_shift_ratio: float = 0.0
     # Loss coefficients.
     reward_coeff: float = 0.5
     expectile_weight: float = 0.9
