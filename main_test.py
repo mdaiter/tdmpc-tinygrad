@@ -1,7 +1,8 @@
 from pathlib import Path
 
-import gym_xarm
+import gym_pusht
 import gymnasium as gym
+from gym.wrappers import HumanRendering
 import imageio
 import numpy
 import tinygrad
@@ -25,19 +26,17 @@ output_directory.mkdir(parents=True, exist_ok=True)
 # pretrained_policy_path = Path("outputs/train/example_pusht_diffusion")
 
 # load the dict of safe_tensors
-state_dict = safe_load("/Users/msd/Code/experiments/td_mpc/outputs/train/example_xarm_lift_medium/model_5000.safetensors")
+state_dict = safe_load("/Users/msd/Code/experiments/td_mpc/outputs/train/example_pusht/model_5000.safetensors")
 
 # Initialize evaluation environment to render two observation types:
 # an image of the scene and state/position of the agent. The environment
 # also automatically stops running after 300 interactions/steps.
-env = gym.make(
-    "gym_xarm/XarmLift-v0",
+env = HumanRendering(gym.make(
+    "gym_pusht/PushT-v0",
     obs_type="pixels_agent_pos",
-    max_episode_steps=200,
-    #render_mode="rgb_array",
-    visualization_width=384,
-    visualization_height=384,
-)
+    max_episode_steps=300,
+    render_mode="rgb_array",
+))
 
 # Set up the dataset.
 delta_timestamps = {
@@ -51,7 +50,7 @@ delta_timestamps = {
     "action": [0.0, 0.03333333333333333, 0.06666666666666667, 0.1, 0.13333333333333333],
     "next.reward": [0.0, 0.03333333333333333, 0.06666666666666667, 0.1, 0.13333333333333333],
 }
-dataset = LeRobotDataset("lerobot/xarm_lift_medium", delta_timestamps=delta_timestamps)
+dataset = LeRobotDataset("lerobot/pusht", delta_timestamps=delta_timestamps)
 print(dataset.stats)
 
 policy = TDMPCPolicy(TDMPCConfig(), dataset_stats=dataset.stats)

@@ -14,12 +14,12 @@ from tdmpc_policy import TDMPCPolicy
 # Start of training code
 
 # Create a directory to store the training checkpoint.
-output_directory = Path("outputs/train/example_xarm_lift_medium")
+output_directory = Path("outputs/train/example_pusht")
 output_directory.mkdir(parents=True, exist_ok=True)
 
 # Number of offline training steps (we'll only do offline training for this example.)
 # Adjust as you prefer. 5000 steps are needed to get something worth evaluating.
-training_steps = 40000
+training_steps = 80000
 log_freq = 1
 
 # Set up the dataset.
@@ -34,13 +34,13 @@ delta_timestamps = {
     "action": [0.0, 0.03333333333333333, 0.06666666666666667, 0.1, 0.13333333333333333],
     "next.reward": [0.0, 0.03333333333333333, 0.06666666666666667, 0.1, 0.13333333333333333],
 }
-dataset = LeRobotDataset("lerobot/xarm_lift_medium", delta_timestamps=delta_timestamps)
+dataset = LeRobotDataset("lerobot/pusht", delta_timestamps=delta_timestamps)
 print(dataset.stats)
 
 cfg = TDMPCConfig()
 policy = TDMPCPolicy(cfg, dataset_stats=dataset.stats)
 
-opt = nn.optim.Adam(nn.state.get_parameters(policy), lr=3e-4)
+opt = nn.optim.Adam(nn.state.get_parameters(policy), lr=1e-4)
 
 @TinyJit
 @Tensor.train()
@@ -59,7 +59,7 @@ print(f'Starting training loop')
 dataloader = DataLoader(
     dataset,
     num_workers=0,
-    batch_size=256,
+    batch_size=64,
     shuffle=True,
     pin_memory=False,
     drop_last=True,

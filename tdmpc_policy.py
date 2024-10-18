@@ -5,6 +5,7 @@ from collections import deque
 from copy import deepcopy
 from functools import partial
 from typing import Callable
+import numpy as np
 
 from config import TDMPCConfig
 from normalize import Normalize, Unnormalize
@@ -26,6 +27,21 @@ def topk(input_:Tensor, k, dim=-1, largest=True, sorted=False):
     if largest: input_ *= -1
     val = np.take_along_axis(input_, ind_part, axis=dim)
     return Tensor(val), ind
+
+def populate_queues(queues, batch):
+    for key in batch:
+        # Ignore keys not in the queues already (leaving the responsibility to the caller to make sure the
+        # queues have the keys they want).
+        if key not in queues:
+            continue
+        if len(queues[key]) != queues[key].maxlen:
+            # initialize by copying the first observation several times until the queue is full
+            while len(queues[key]) != queues[key].maxlen:
+                queues[key].append(batch[key])
+        else:
+            # add latest observation to the queue
+            queues[key].append(batch[key])
+    return queues
 
 def update_ema_parameters(ema_net, net, alpha: float):
     Tensor.no_grad = True
@@ -211,8 +227,11 @@ class TDMPCPolicy():
         )
         # Maybe warm start CEM with the mean from the previous step.
         if self._prev_mean is not None:
+            mean = mean.contiguous()
             mean[:-1] = self._prev_mean[1:]
-        std = self.config.max_std * Tensor.ones_like(mean)
+        std = float(self.config.max_std) * Tensor.ones_like(mean)
+        print(f'mean.shape: {mean.shape}')
+        print(f'std.shape: {std.shape}')
 
         for _ in range(self.config.cem_iterations):
             # Randomly sample action trajectories for the gaussian distribution.
@@ -222,19 +241,27 @@ class TDMPCPolicy():
                 batch_size,
                 self.config.output_shapes["action"][0],
             )
+            print(f'batch_size: {batch_size}, horizon: {self.config.horizon}, n_gaussian_samples: {self.config.n_gaussian_samples}')
+            print(f'self.conifg.max_std: {self.config.max_std}')
+            print(f'output_shapes_action: {self.config.output_shapes["action"][0]}')
+            print(f'mean.shape in loop: {mean.unsqueeze(1).shape}')
+            print(f'std.shape in loop: {std.unsqueeze(1).shape}, std_normal_noise.shape: {std_normal_noise.shape}')
             gaussian_actions = (mean.unsqueeze(1) + std.unsqueeze(1) * std_normal_noise).clamp(-1, 1)
 
             # Compute elite actions.
             actions = gaussian_actions.cat(pi_actions, dim=1)
             estimated_value = self.estimate_value(z, actions)
             value = (estimated_value != float("nan")).where(estimated_value, 0)
-            elite_idxs = topk(value, self.config.n_elites, dim=0)[1]  # (n_elites, batch), grabbing indices
+            elite_idxs = Tensor(topk(value, self.config.n_elites, dim=0)[1], requires_grad=False)  # (n_elites, batch), grabbing indices
             elite_value = value.gather(0, elite_idxs)  # (n_elites, batch) - take_along_dim
+            print(f'elite value: {elite_value}. n_elites: {self.config.n_elites}, batch: {batch_size}')
             # (horizon, n_elites, batch, action_dim)
-            elite_actions = actions.gather(1, elite_idxs.reshape(1, *elite_idxs.shape, 1).expand(1, *elite_idxs.shape, 1))
+            elite_actions = actions.gather(dim=1, index=elite_idxs.reshape((1, elite_idxs.shape[0], elite_idxs.shape[1], 1)))
+            print(f'elite_actions.shape: {elite_actions.shape}. horizon: {self.config.horizon}, n_elites: {self.config.n_elites}, batch: {batch_size}, action_dim')
 
             # Update gaussian PDF parameters to be the (weighted) mean and standard deviation of the elites.
             max_value = elite_value.max(0, keepdim=True)[0]  # (1, batch)
+            print(f'max_value: {max_value}. 1 = 1, batch: {batch_size}')
             # The weighting is a softmax over trajectory values. Note that this is not the same as the usage
             # of Ω in eqn 4 of the TD-MPC paper. Instead it is the normalized version of it: s = Ω/ΣΩ. This
             # makes the equations: μ = Σ(s⋅Γ), σ = Σ(s⋅(Γ-μ)²).
@@ -242,10 +269,14 @@ class TDMPCPolicy():
             score /= score.sum(axis=0, keepdim=True)
             # (horizon, batch, action_dim)
             rearranged_score = score.reshape(*score.shape, 1)
+            print(f'rearranged_score: {rearranged_score.shape}. score.shape: {score.shape}')
             _mean = (rearranged_score * elite_actions).sum(axis=1)
-            _rearranged_mean = _mean.reshape(_mean.shape[0], 1, *_mean.shape[1:]).expand(_mean.shape[0], 1, *_mean.shape[1:])
-            _std = rearranged_score * (elite_actions - _rearranged_mean).pow(2).sum(dim=1).sqrt()
-            
+            print(f'_mean.shape: {_mean.shape}')
+            _rearranged_mean = _mean.reshape(_mean.shape[0], 1, _mean.shape[1], _mean.shape[2])
+            print(f'_rearranged_mean.shape: {_rearranged_mean}')
+            print(f'rearranged_score.shape: {rearranged_score.shape}')
+            _std = (rearranged_score * (elite_actions - _rearranged_mean).square()).sum(axis=1).sqrt()
+            print(f'_std.shape: {_std.shape}')
             # Update mean with an exponential moving average, and std with a direct replacement.
             mean = (
                 self.config.gaussian_mean_momentum * mean + (1 - self.config.gaussian_mean_momentum) * _mean
