@@ -26,7 +26,7 @@ output_directory.mkdir(parents=True, exist_ok=True)
 # pretrained_policy_path = Path("outputs/train/example_pusht_diffusion")
 
 # load the dict of safe_tensors
-state_dict = safe_load("/Users/msd/Code/experiments/td_mpc/outputs/train/example_pusht/model_5000.safetensors")
+state_dict = safe_load("/Users/msd/Code/experiments/td_mpc/outputs/train/example_pusht/model_35000.safetensors")
 
 # Initialize evaluation environment to render two observation types:
 # an image of the scene and state/position of the agent. The environment

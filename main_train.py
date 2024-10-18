@@ -19,13 +19,14 @@ output_directory.mkdir(parents=True, exist_ok=True)
 
 # Number of offline training steps (we'll only do offline training for this example.)
 # Adjust as you prefer. 5000 steps are needed to get something worth evaluating.
-training_steps = 80000
+training_steps = 1000000
 log_freq = 1
 
 # Set up the dataset.
 delta_timestamps = {
     # Load the previous image and state at -0.1 seconds before current frame,
     # then load current image and state corresponding to 0.0 second.
+    #"observation.environment_state":[0.0, 0.03333333333333333, 0.06666666666666667, 0.1, 0.13333333333333333, 0.16666666666666666],
     "observation.image": [0.0, 0.03333333333333333, 0.06666666666666667, 0.1, 0.13333333333333333, 0.16666666666666666],
     "observation.state": [0.0, 0.03333333333333333, 0.06666666666666667, 0.1, 0.13333333333333333, 0.16666666666666666],
     # Load the previous action (-0.1), the next action to be executed (0.0),
@@ -40,9 +41,9 @@ print(dataset.stats)
 cfg = TDMPCConfig()
 policy = TDMPCPolicy(cfg, dataset_stats=dataset.stats)
 
-opt = nn.optim.Adam(nn.state.get_parameters(policy), lr=1e-4)
+opt = nn.optim.Adam(nn.state.get_parameters(policy), lr=3e-4)
 
-@TinyJit
+#@TinyJit
 @Tensor.train()
 def train_step(batch) -> Tensor:
     Tensor.training = True
