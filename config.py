@@ -91,26 +91,19 @@ class TDMPCConfig:
 
     input_shapes: dict[str, list[int]] = field(
         default_factory=lambda: {
-            "observation.image": [3, 96, 96],
+            "observation.image": [3, 84, 84],
             #"observation.environment_state": [16],
-            "observation.state": [2],
+            "observation.state": [4],
         }
     )
     output_shapes: dict[str, list[int]] = field(
         default_factory=lambda: {
-            "action": [2],
+            "action": [4],
         }
     )
 
     # Normalization / Unnormalization
-    input_normalization_modes: dict[str, str] | None = field(
-        default_factory=lambda: {
-            "observation.image": "mean_std",
-            #"observation.environment_state": "min_max",
-            "observation.state": "min_max",
-        }
-    )
-
+    input_normalization_modes: dict[str, str] | None = None
     output_normalization_modes: dict[str, str] = field(
         default_factory=lambda: {"action": "min_max"},
     )

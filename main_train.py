@@ -4,7 +4,7 @@ from lerobot.common.datasets.lerobot_dataset import LeRobotDataset
 from torch.utils.data import DataLoader
 
 import tinygrad
-from tinygrad import Tensor, nn, TinyJit
+from tinygrad import Tensor, nn, TinyJit, dtypes
 
 from tinygrad.nn.state import safe_save, safe_load, get_state_dict, load_state_dict
 
@@ -14,12 +14,12 @@ from tdmpc_policy import TDMPCPolicy
 # Start of training code
 
 # Create a directory to store the training checkpoint.
-output_directory = Path("outputs/train/example_pusht")
+output_directory = Path("outputs/train/example_xarm_lift_medium")
 output_directory.mkdir(parents=True, exist_ok=True)
 
 # Number of offline training steps (we'll only do offline training for this example.)
 # Adjust as you prefer. 5000 steps are needed to get something worth evaluating.
-training_steps = 1000000
+training_steps = 50000
 log_freq = 1
 
 # Set up the dataset.
@@ -27,40 +27,71 @@ delta_timestamps = {
     # Load the previous image and state at -0.1 seconds before current frame,
     # then load current image and state corresponding to 0.0 second.
     #"observation.environment_state":[0.0, 0.03333333333333333, 0.06666666666666667, 0.1, 0.13333333333333333, 0.16666666666666666],
-    "observation.image": [0.0, 0.03333333333333333, 0.06666666666666667, 0.1, 0.13333333333333333, 0.16666666666666666],
-    "observation.state": [0.0, 0.03333333333333333, 0.06666666666666667, 0.1, 0.13333333333333333, 0.16666666666666666],
+    "observation.image": [0.0, 1.0/15.0, 2.0/15.0, 3.0/15.0, 4.0/15.0, 5.0/15.0, 6.0/15.0],
+    "observation.state": [0.0, 1.0/15.0, 2.0/15.0, 3.0/15.0, 4.0/15.0, 5.0/15.0, 6.0/15.0],
     # Load the previous action (-0.1), the next action to be executed (0.0),
     # and 14 future actions with a 0.1 seconds spacing. All these actions will be
     # used to supervise the policy.
-    "action": [0.0, 0.03333333333333333, 0.06666666666666667, 0.1, 0.13333333333333333],
-    "next.reward": [0.0, 0.03333333333333333, 0.06666666666666667, 0.1, 0.13333333333333333],
+    "action": [0.0, 1.0/15.0, 2.0/15.0, 3.0/15.0, 4.0/15.0, 5.0/15.0],
+    "next.reward": [0.0, 1.0/15.0, 2.0/15.0, 3.0/15.0, 4.0/15.0, 5.0/15.0],
 }
-dataset = LeRobotDataset("lerobot/pusht", delta_timestamps=delta_timestamps)
+dataset = LeRobotDataset("lerobot/xarm_lift_medium", delta_timestamps=delta_timestamps)
 print(dataset.stats)
 
 cfg = TDMPCConfig()
 policy = TDMPCPolicy(cfg, dataset_stats=dataset.stats)
 
-opt = nn.optim.Adam(nn.state.get_parameters(policy), lr=3e-4)
+policy_parameters = nn.state.get_parameters(policy)
 
-#@TinyJit
+opt = nn.optim.Adam(policy_parameters, lr=3e-4)
+
+@TinyJit
 @Tensor.train()
-def train_step(batch) -> Tensor:
+def train_step(
+    observation_image: Tensor,
+    observation_state: Tensor,
+    action: Tensor,
+    episode_index: Tensor,
+    frame_index: Tensor,
+    timestamp: Tensor,
+    next_reward: Tensor,
+    next_done: Tensor,
+    index: Tensor,
+    observation_image_is_pad: Tensor,
+    observation_state_is_pad: Tensor,
+    action_is_pad: Tensor,
+    next_reward_is_pad: Tensor
+) -> Tensor:
     Tensor.training = True
+    batch = {
+        'observation.image': observation_image,
+        'observation.state': observation_state,
+        'action': action,
+        'episode_index': episode_index,
+        'frame_index': frame_index,
+        'timestamp': timestamp,
+        'next.reward': next_reward,
+        'next.done': next_done,
+        'index': index,
+        'observation.image_is_pad': observation_image_is_pad,
+        'observation.state_is_pad': observation_state_is_pad,
+        'action_is_pad': action_is_pad,
+        'next.reward_is_pad': next_reward_is_pad
+    }
     output_dict = policy(batch)
     loss = output_dict["loss"]
     loss.backward()
     opt.step()
     opt.zero_grad()
     policy.update()
-    return loss
+    return loss.realize()
 
 print(f'Starting training loop')
 # Create dataloader for offline training.
 dataloader = DataLoader(
     dataset,
     num_workers=0,
-    batch_size=64,
+    batch_size=256,
     shuffle=True,
     pin_memory=False,
     drop_last=True,
@@ -72,7 +103,23 @@ with Tensor.train():
     while not done:
         for batch in dataloader:
             batch = {k: Tensor(v.numpy(), requires_grad=False) for k, v in batch.items()}
-            loss = train_step(batch)
+            print(f'batch: {batch}')
+            loss = train_step(
+                batch['observation.image'].realize(),
+                batch['observation.state'].realize(),
+                batch['action'].realize(),
+                batch['episode_index'].realize(),
+                batch['frame_index'].realize(),
+                batch['timestamp'].realize(),
+                batch['next.reward'].realize(),
+                batch['next.done'].realize(),
+                batch['index'].realize(),
+                batch['observation.image_is_pad'].realize(),
+                batch['observation.state_is_pad'].realize(),
+                batch['action_is_pad'].realize(),
+                batch['next.reward_is_pad'].realize()
+            )
+            batch = None
         
             if step % log_freq == 0:
                 print(f"step: {step} loss: {loss.numpy():.3f}")
